@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Login Success</title>
+</head>
+<body style="text-align:center; margin-top:100px;">
+
+  <h1>✅ Successfully Logged In</h1>
+
+  <h2>Welcome, <%= name %></h2>
+  <h3>Your Role: <%= role %></h3>
+
+  <% if(role === 'admin') { %>
+    <p>You have ADMIN privileges</p>
+  <% } %>
+
+  <% if(role === 'doctor') { %>
+    <p>You have DOCTOR access</p>
+  <% } %>
+
+  <% if(role === 'user') { %>
+    <p>You are logged in as USER</p>
+  <% } %>
+
+  <a href="/logout">Logout</a>
+
+</body>
+</html>
