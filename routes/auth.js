@@ -231,4 +231,138 @@ router.get("/admin/customers", (req, res) => {
   });
 });
 
+/* ================= GET PROFILE ================= */
+router.get("/profile", (req, res) => {
+  if (!req.session.user)
+    return res.status(401).send("Unauthorized");
+
+  const { role, id } = req.session.user;
+  const table = role === "customer" ? "customers" : "doctors";
+
+  db.query(
+    `SELECT * FROM ${table} WHERE id = ?`,
+    [id],
+    (err, rows) => {
+      if (err || !rows.length)
+        return res.status(500).send("Profile not found");
+
+      const user = rows[0];
+      delete user.password;
+
+      user.role = role; // IMPORTANT
+
+      res.json(user);
+    }
+  );
+});
+
+/* ================= UPDATE PROFILE ================= */
+router.put(
+  "/profile",
+  upload.fields([
+    { name: "doctor_image", maxCount: 1 },
+    { name: "hospital_image", maxCount: 1 }
+  ]),
+  (req, res) => {
+
+    if (!req.session.user)
+      return res.status(401).send("Unauthorized");
+
+    const { role, id } = req.session.user;
+    const body = req.body;
+
+    if (role === "customer") {
+      db.query(
+        `UPDATE customers
+         SET full_name=?, phone=?, dob=?, age=?, address=?, gender=?
+         WHERE id=?`,
+        [
+          body.full_name,
+          body.phone,
+          body.dob,
+          body.age,
+          body.address,
+          body.gender,
+          id
+        ],
+        err => {
+          if (err) return res.status(500).send("Update failed");
+          res.send("Updated");
+        }
+      );
+    }
+
+    if (role === "doctor") {
+
+      let doctorImage = req.files?.doctor_image
+        ? req.files.doctor_image[0].filename
+        : body.doctor_image;
+
+      let hospitalImage = req.files?.hospital_image
+        ? req.files.hospital_image[0].filename
+        : body.hospital_image;
+
+      db.query(
+        `UPDATE doctors
+         SET full_name=?, phone=?, hospital_name=?, specialization=?,
+             doctor_image=?, hospital_image=?
+         WHERE id=?`,
+        [
+          body.full_name,
+          body.phone,
+          body.hospital_name,
+          body.specialization,
+          doctorImage,
+          hospitalImage,
+          id
+        ],
+        err => {
+          if (err) return res.status(500).send("Update failed");
+          res.send("Updated");
+        }
+      );
+    }
+  }
+);
+
+/* ================= CHANGE PASSWORD ================= */
+router.put("/change-password", async (req, res) => {
+  if (!req.session.user)
+    return res.status(401).send("Unauthorized");
+
+  const { role, id } = req.session.user;
+  const { currentPassword, newPassword } = req.body;
+  const table = role === "customer" ? "customers" : "doctors";
+
+  db.query(
+    `SELECT password FROM ${table} WHERE id=?`,
+    [id],
+    async (err, rows) => {
+      if (err || !rows.length)
+        return res.status(500).send("User not found");
+
+      const match = await bcrypt.compare(
+        currentPassword,
+        rows[0].password
+      );
+
+      if (!match)
+        return res.status(400).send("Current password incorrect");
+
+      const hash = await bcrypt.hash(newPassword, 10);
+
+      db.query(
+        `UPDATE ${table} SET password=? WHERE id=?`,
+        [hash, id],
+        err => {
+          if (err)
+            return res.status(500).send("Password update failed");
+          res.send("Password changed");
+        }
+      );
+    }
+  );
+});
+
+
 module.exports = router;
