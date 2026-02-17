@@ -56,7 +56,8 @@ router.post(
         email,
         password,
         hospitalName,
-        specialization
+        specialization,
+        experience     // 🔥 NEW
       } = req.body;
 
       if (!req.files?.doctorImage || !req.files?.hospitalImage) {
@@ -70,8 +71,8 @@ router.post(
       db.query(
         `INSERT INTO doctors 
         (full_name, phone, email, password, hospital_name, 
-        specialization, doctor_image, hospital_image, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+         specialization, experience, doctor_image, hospital_image, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
         [
           fullName,
           phone,
@@ -79,15 +80,21 @@ router.post(
           hash,
           hospitalName,
           specialization,
+          experience,      // 🔥 SAVED HERE
           doctorImage,
           hospitalImage
         ],
         (err) => {
-          if (err) return res.status(409).send("Doctor already exists");
+          if (err) {
+            console.error(err);
+            return res.status(409).send("Doctor already exists");
+          }
           res.send("Doctor Registration Successful");
         }
       );
-    } catch {
+
+    } catch (err) {
+      console.error(err);
       res.status(500).send("Doctor registration failed");
     }
   }
@@ -149,6 +156,7 @@ router.post("/logout", (req, res) => {
 
 /* ================= GET PROFILE ================= */
 router.get("/profile", (req, res) => {
+
   if (!req.session.user)
     return res.status(401).send("Unauthorized");
 
@@ -159,11 +167,13 @@ router.get("/profile", (req, res) => {
     `SELECT * FROM ${table} WHERE id=?`,
     [id],
     (err, rows) => {
+
       if (err || !rows.length)
         return res.status(500).send("Profile not found");
 
       const user = rows[0];
       delete user.password;
+
       user.role = role;
 
       res.json(user);
@@ -185,6 +195,7 @@ router.put(
 
     const { role, id } = req.session.user;
 
+    /* ================= CUSTOMER UPDATE ================= */
     if (role === "customer") {
 
       let { full_name, phone, dob, age, address, gender } = req.body;
@@ -197,15 +208,29 @@ router.put(
          WHERE id=?`,
         [full_name, phone, dob, age, address, gender, id],
         (err) => {
-          if (err) return res.status(500).send("Customer update failed");
+
+          if (err) {
+            console.error(err);
+            return res.status(500).send("Customer update failed");
+          }
+
           res.send("Customer updated successfully");
         }
       );
     }
 
+    /* ================= DOCTOR UPDATE ================= */
     else if (role === "doctor") {
 
-      const { full_name, phone, hospital_name, specialization } = req.body;
+      const {
+        full_name,
+        phone,
+        hospital_name,
+        specialization,
+        experience      // 🔥 VERY IMPORTANT
+      } = req.body;
+
+      console.log("Updating Experience:", experience); // Debug
 
       let doctorImage = req.files?.doctor_image
         ? req.files.doctor_image[0].filename
@@ -217,22 +242,32 @@ router.put(
 
       db.query(
         `UPDATE doctors 
-         SET full_name=?, phone=?, hospital_name=?, specialization=?, 
-             doctor_image=?, hospital_image=? 
+         SET full_name=?,
+             phone=?,
+             hospital_name=?,
+             specialization=?,
+             experience=?,      -- 🔥 FIXED
+             doctor_image=?,
+             hospital_image=? 
          WHERE id=?`,
         [
           full_name,
           phone,
           hospital_name,
           specialization,
+          experience || 0,
           doctorImage,
           hospitalImage,
           id
         ],
         (err) => {
-          if (err) return res.status(500).send("Doctor update failed");
 
-          // 🔥 Update session image immediately
+          if (err) {
+            console.error(err);
+            return res.status(500).send("Doctor update failed");
+          }
+
+          // 🔥 Update session image instantly
           req.session.user.image = doctorImage;
 
           res.send("Doctor updated successfully");
@@ -349,6 +384,7 @@ router.get("/admin/customers", (req, res) => {
 });
 
 /* ================= DOCTOR SCHEDULE SAVE ================= */
+/* ================= DOCTOR SCHEDULE SAVE / UPDATE ================= */
 router.post("/doctor/schedule", (req, res) => {
 
   if (!req.session.user || req.session.user.role !== "doctor")
@@ -361,9 +397,16 @@ router.post("/doctor/schedule", (req, res) => {
     return res.status(400).send("Missing fields");
 
   db.query(
-    `INSERT INTO doctor_schedules 
-    (doctor_id, login_time, logout_time, duration, available_slots)
-    VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO doctor_schedules
+     (doctor_id, login_time, logout_time, duration, available_slots)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       login_time = VALUES(login_time),
+       logout_time = VALUES(logout_time),
+       duration = VALUES(duration),
+       available_slots = VALUES(available_slots),
+       created_at = NOW()
+    `,
     [
       doctorId,
       loginTime,
@@ -376,38 +419,35 @@ router.post("/doctor/schedule", (req, res) => {
         console.error(err);
         return res.status(500).send("Schedule save failed");
       }
+
       res.send("Schedule saved successfully");
     }
   );
 });
 
+
 /* ================= GET DOCTOR SCHEDULE ================= */
 router.get("/doctor/schedule/:doctorId", (req, res) => {
 
-  const doctorId = req.params.doctorId;
-
   db.query(
-    `SELECT * FROM doctor_schedules 
-     WHERE doctor_id=? 
-     ORDER BY created_at DESC LIMIT 1`,
-    [doctorId],
+    "SELECT * FROM doctor_schedules WHERE doctor_id=? LIMIT 1",
+    [req.params.doctorId],
     (err, rows) => {
-      if (err || !rows.length)
-        return res.status(404).send("Schedule not found");
+
+      if (err) return res.status(500).send("Database error");
+      if (!rows.length) return res.status(404).send("No schedule");
 
       const schedule = rows[0];
-      schedule.available_slots = JSON.parse(schedule.available_slots);
+
+      schedule.available_slots =
+        typeof schedule.available_slots === "string"
+          ? JSON.parse(schedule.available_slots)
+          : schedule.available_slots;
 
       res.json(schedule);
     }
   );
 });
 
-router.get("/admin/customers", (req, res) => {
-  db.query("SELECT * FROM customers", (err, rows) => {
-    if (err) return res.status(500).send("Server error");
-    res.json(rows);
-  });
-});
 
 module.exports = router;
