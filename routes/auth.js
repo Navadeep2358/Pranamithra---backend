@@ -288,8 +288,6 @@ router.put("/change-password", async (req, res) => {
 /* ================= ADMIN ROUTES (UNCHANGED) ================= */
 // (All your admin routes stay exactly same here)
 
-module.exports = router;
-
 /* ================= ADMIN ROUTES ================= */
 
 router.get("/admin/doctors/pending", (req, res) => {
@@ -341,6 +339,68 @@ router.get("/admin/doctors", (req, res) => {
     if (err) return res.status(500).send("Server error");
     res.json(rows);
   });
+});
+
+router.get("/admin/customers", (req, res) => {
+  db.query("SELECT * FROM customers", (err, rows) => {
+    if (err) return res.status(500).send("Server error");
+    res.json(rows);
+  });
+});
+
+/* ================= DOCTOR SCHEDULE SAVE ================= */
+router.post("/doctor/schedule", (req, res) => {
+
+  if (!req.session.user || req.session.user.role !== "doctor")
+    return res.status(401).send("Unauthorized");
+
+  const { loginTime, logoutTime, duration, availableSlots } = req.body;
+  const doctorId = req.session.user.id;
+
+  if (!loginTime || !logoutTime || !duration)
+    return res.status(400).send("Missing fields");
+
+  db.query(
+    `INSERT INTO doctor_schedules 
+    (doctor_id, login_time, logout_time, duration, available_slots)
+    VALUES (?, ?, ?, ?, ?)`,
+    [
+      doctorId,
+      loginTime,
+      logoutTime,
+      duration,
+      JSON.stringify(availableSlots)
+    ],
+    (err) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Schedule save failed");
+      }
+      res.send("Schedule saved successfully");
+    }
+  );
+});
+
+/* ================= GET DOCTOR SCHEDULE ================= */
+router.get("/doctor/schedule/:doctorId", (req, res) => {
+
+  const doctorId = req.params.doctorId;
+
+  db.query(
+    `SELECT * FROM doctor_schedules 
+     WHERE doctor_id=? 
+     ORDER BY created_at DESC LIMIT 1`,
+    [doctorId],
+    (err, rows) => {
+      if (err || !rows.length)
+        return res.status(404).send("Schedule not found");
+
+      const schedule = rows[0];
+      schedule.available_slots = JSON.parse(schedule.available_slots);
+
+      res.json(schedule);
+    }
+  );
 });
 
 router.get("/admin/customers", (req, res) => {
