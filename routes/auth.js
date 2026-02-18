@@ -56,8 +56,9 @@ router.post(
         email,
         password,
         hospitalName,
+        hospitalAddress,   // ✅ NEW
         specialization,
-        experience     // 🔥 NEW
+        experience
       } = req.body;
 
       if (!req.files?.doctorImage || !req.files?.hospitalImage) {
@@ -70,17 +71,18 @@ router.post(
 
       db.query(
         `INSERT INTO doctors 
-        (full_name, phone, email, password, hospital_name, 
+        (full_name, phone, email, password, hospital_name, hospital_address,
          specialization, experience, doctor_image, hospital_image, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
         [
           fullName,
           phone,
           email,
           hash,
           hospitalName,
+          hospitalAddress,
           specialization,
-          experience,      // 🔥 SAVED HERE
+          experience,
           doctorImage,
           hospitalImage
         ],
@@ -220,60 +222,63 @@ router.put(
     }
 
     /* ================= DOCTOR UPDATE ================= */
-    else if (role === "doctor") {
+else if (role === "doctor") {
 
-      const {
-        full_name,
-        phone,
-        hospital_name,
-        specialization,
-        experience      // 🔥 VERY IMPORTANT
-      } = req.body;
+  const {
+    full_name,
+    phone,
+    hospital_name,
+    hospital_address,   // ✅ NEW
+    specialization,
+    experience
+  } = req.body;
 
-      console.log("Updating Experience:", experience); // Debug
+  console.log("Updating Experience:", experience);
 
-      let doctorImage = req.files?.doctor_image
-        ? req.files.doctor_image[0].filename
-        : req.body.doctor_image;
+  let doctorImage = req.files?.doctor_image
+    ? req.files.doctor_image[0].filename
+    : req.body.doctor_image;
 
-      let hospitalImage = req.files?.hospital_image
-        ? req.files.hospital_image[0].filename
-        : req.body.hospital_image;
+  let hospitalImage = req.files?.hospital_image
+    ? req.files.hospital_image[0].filename
+    : req.body.hospital_image;
 
-      db.query(
-        `UPDATE doctors 
-         SET full_name=?,
-             phone=?,
-             hospital_name=?,
-             specialization=?,
-             experience=?,      -- 🔥 FIXED
-             doctor_image=?,
-             hospital_image=? 
-         WHERE id=?`,
-        [
-          full_name,
-          phone,
-          hospital_name,
-          specialization,
-          experience || 0,
-          doctorImage,
-          hospitalImage,
-          id
-        ],
-        (err) => {
+  db.query(
+    `UPDATE doctors 
+     SET full_name=?,
+         phone=?,
+         hospital_name=?,
+         hospital_address=?,    -- ✅ NEW
+         specialization=?,
+         experience=?,
+         doctor_image=?,
+         hospital_image=? 
+     WHERE id=?`,
+    [
+      full_name,
+      phone,
+      hospital_name,
+      hospital_address,
+      specialization,
+      experience || 0,
+      doctorImage,
+      hospitalImage,
+      id
+    ],
+    (err) => {
 
-          if (err) {
-            console.error(err);
-            return res.status(500).send("Doctor update failed");
-          }
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Doctor update failed");
+      }
 
-          // 🔥 Update session image instantly
-          req.session.user.image = doctorImage;
+      req.session.user.image = doctorImage;
 
-          res.send("Doctor updated successfully");
-        }
-      );
+      res.send("Doctor updated successfully");
     }
+  );
+}
+
   }
 );
 
@@ -412,25 +417,22 @@ function generateSlots(loginTime, logoutTime, duration) {
   return slots;
 }
 
-/* ================= DOCTOR SCHEDULE SAVE / UPDATE ================= */
 router.post("/doctor/schedule", (req, res) => {
 
   if (!req.session.user || req.session.user.role !== "doctor")
     return res.status(401).send("Unauthorized");
 
-  const { loginTime, logoutTime, duration } = req.body;
+  const { scheduleDate, loginTime, logoutTime, duration } = req.body;
   const doctorId = req.session.user.id;
 
-  if (!loginTime || !logoutTime || !duration)
+  if (!scheduleDate || !loginTime || !logoutTime || !duration)
     return res.status(400).send("Missing fields");
 
   const slotDuration = Number(duration);
 
-  // ✅ Only allow 10, 20, 30 minutes
   if (![10, 20, 30].includes(slotDuration))
     return res.status(400).send("Invalid slot duration");
 
-  // 🔥 Automatically generate slots
   const availableSlots = generateSlots(
     loginTime,
     logoutTime,
@@ -439,8 +441,8 @@ router.post("/doctor/schedule", (req, res) => {
 
   db.query(
     `INSERT INTO doctor_schedules
-     (doctor_id, login_time, logout_time, duration, available_slots)
-     VALUES (?, ?, ?, ?, ?)
+     (doctor_id, schedule_date, login_time, logout_time, duration, available_slots)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        login_time = VALUES(login_time),
        logout_time = VALUES(logout_time),
@@ -450,6 +452,7 @@ router.post("/doctor/schedule", (req, res) => {
     `,
     [
       doctorId,
+      scheduleDate,
       loginTime,
       logoutTime,
       slotDuration,
@@ -466,13 +469,14 @@ router.post("/doctor/schedule", (req, res) => {
   );
 });
 
-
 /* ================= GET DOCTOR SCHEDULE ================= */
-router.get("/doctor/schedule/:doctorId", (req, res) => {
+router.get("/doctor/schedule/:doctorId/:date", (req, res) => {
+
+  const { doctorId, date } = req.params;
 
   db.query(
-    "SELECT * FROM doctor_schedules WHERE doctor_id=? LIMIT 1",
-    [req.params.doctorId],
+    "SELECT * FROM doctor_schedules WHERE doctor_id=? AND schedule_date=? LIMIT 1",
+    [doctorId, date],
     (err, rows) => {
 
       if (err) return res.status(500).send("Database error");
@@ -563,5 +567,136 @@ router.get("/customer/doctors", (req, res) => {
   );
 });
 
+/* ================= GET AVAILABLE SLOTS ================= */
+router.get("/doctor/available-slots", (req, res) => {
+
+  const { doctorId, date } = req.query;
+
+  if (!doctorId || !date)
+    return res.status(400).send("Missing fields");
+
+  // 1️⃣ Get doctor scheduled slots
+  db.query(
+    `SELECT slot_time, duration 
+     FROM doctor_schedules 
+     WHERE doctor_id=? AND schedule_date=?`,
+    [doctorId, date],
+    (err, scheduledSlots) => {
+
+      if (err) return res.status(500).send("Error");
+
+      // 2️⃣ Get already booked slots
+      db.query(
+        `SELECT slot_time 
+         FROM appointments 
+         WHERE doctor_id=? AND appointment_date=?`,
+        [doctorId, date],
+        (err2, bookedSlots) => {
+
+          if (err2) return res.status(500).send("Error");
+
+          const bookedTimes = bookedSlots.map(b => b.slot_time);
+
+          // 3️⃣ Filter only available slots
+          const available = scheduledSlots.filter(
+            s => !bookedTimes.includes(s.slot_time)
+          );
+
+          res.json(available);
+        }
+      );
+    }
+  );
+});
+
+/* ================= BOOK APPOINTMENT ================= */
+router.post("/book-appointment", (req, res) => {
+
+  if (!req.session.user || req.session.user.role !== "customer")
+    return res.status(401).send("Unauthorized");
+
+  const { doctorId, slotTime, duration, amount, date } = req.body;
+  const customerId = req.session.user.id;
+
+  if (!doctorId || !slotTime || !duration || !amount || !date)
+    return res.status(400).send("Missing fields");
+
+  // 🔥 Validate only tomorrow & day after tomorrow
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+
+  const dayAfter = new Date();
+  dayAfter.setDate(today.getDate() + 2);
+
+  const formatted = d => d.toISOString().split("T")[0];
+
+  if (date !== formatted(tomorrow) && date !== formatted(dayAfter))
+    return res.status(400).send("Invalid date selection");
+
+  // 🔥 Check if slot exists in doctor schedule
+  db.query(
+    `SELECT * FROM doctor_schedules
+     WHERE doctor_id=? AND schedule_date=? AND slot_time=?`,
+    [doctorId, date, slotTime],
+    (err, scheduleRows) => {
+
+      if (scheduleRows.length === 0)
+        return res.status(400).send("Invalid slot");
+
+      // 🔥 Check if already booked
+      db.query(
+        `SELECT * FROM appointments 
+         WHERE doctor_id=? AND appointment_date=? AND slot_time=?`,
+        [doctorId, date, slotTime],
+        (err2, rows) => {
+
+          if (rows.length > 0)
+            return res.status(400).send("Slot already booked");
+
+          // 🔥 Insert booking
+          db.query(
+            `INSERT INTO appointments
+             (doctor_id, customer_id, appointment_date, slot_time, duration, amount)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [doctorId, customerId, date, slotTime, duration, amount],
+            (err3) => {
+
+              if (err3) {
+                console.error(err3);
+                return res.status(500).send("Booking failed");
+              }
+
+              res.send("Appointment booked successfully");
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+
+/* ================= GET CUSTOMER BOOKINGS ================= */
+router.get("/appointments/my", (req, res) => {
+
+  if (!req.session.user || req.session.user.role !== "customer")
+    return res.status(401).send("Unauthorized");
+
+  db.query(
+    `SELECT a.*, d.full_name, d.specialization
+     FROM appointments a
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.customer_id=? 
+     ORDER BY a.created_at DESC`,
+    [req.session.user.id],
+    (err, rows) => {
+
+      if (err) return res.status(500).send("Error");
+
+      res.json(rows);
+    }
+  );
+});
 
 module.exports = router;
