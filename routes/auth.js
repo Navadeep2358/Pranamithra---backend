@@ -383,18 +383,59 @@ router.get("/admin/customers", (req, res) => {
   });
 });
 
-/* ================= DOCTOR SCHEDULE SAVE ================= */
+/* ================= SLOT GENERATOR WITH 5 MIN GAP ================= */
+function generateSlots(loginTime, logoutTime, duration) {
+  let slots = [];
+
+  const start = new Date(`1970-01-01T${loginTime}:00`);
+  const end = new Date(`1970-01-01T${logoutTime}:00`);
+
+  let current = start;
+
+  const gap = 5; // 🔥 5 Minutes Gap After Each Appointment
+
+  while (current < end) {
+
+    let slotEnd = new Date(current.getTime() + duration * 60000);
+
+    if (slotEnd > end) break;
+
+    const startStr = current.toTimeString().slice(0, 5);
+    const endStr = slotEnd.toTimeString().slice(0, 5);
+
+    slots.push(`${startStr} - ${endStr}`);
+
+    // 🔥 Move to next slot WITH gap
+    current = new Date(slotEnd.getTime() + gap * 60000);
+  }
+
+  return slots;
+}
+
 /* ================= DOCTOR SCHEDULE SAVE / UPDATE ================= */
 router.post("/doctor/schedule", (req, res) => {
 
   if (!req.session.user || req.session.user.role !== "doctor")
     return res.status(401).send("Unauthorized");
 
-  const { loginTime, logoutTime, duration, availableSlots } = req.body;
+  const { loginTime, logoutTime, duration } = req.body;
   const doctorId = req.session.user.id;
 
   if (!loginTime || !logoutTime || !duration)
     return res.status(400).send("Missing fields");
+
+  const slotDuration = Number(duration);
+
+  // ✅ Only allow 10, 20, 30 minutes
+  if (![10, 20, 30].includes(slotDuration))
+    return res.status(400).send("Invalid slot duration");
+
+  // 🔥 Automatically generate slots
+  const availableSlots = generateSlots(
+    loginTime,
+    logoutTime,
+    slotDuration
+  );
 
   db.query(
     `INSERT INTO doctor_schedules
@@ -411,7 +452,7 @@ router.post("/doctor/schedule", (req, res) => {
       doctorId,
       loginTime,
       logoutTime,
-      duration,
+      slotDuration,
       JSON.stringify(availableSlots)
     ],
     (err) => {
@@ -445,6 +486,79 @@ router.get("/doctor/schedule/:doctorId", (req, res) => {
           : schedule.available_slots;
 
       res.json(schedule);
+    }
+  );
+});
+
+/* ================= SAVE / UPDATE APPOINTMENT COST ================= */
+router.post("/doctor/appointment-cost", (req, res) => {
+
+  if (!req.session.user || req.session.user.role !== "doctor")
+    return res.status(401).send("Unauthorized");
+
+  const doctorId = req.session.user.id;
+  const { cost10, cost20, cost30 } = req.body;
+
+  if (!cost10 || !cost20 || !cost30)
+    return res.status(400).send("All fields required");
+
+  db.query(
+    `INSERT INTO doctor_appointment_costs
+     (doctor_id, cost_10, cost_20, cost_30)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       cost_10 = ?,
+       cost_20 = ?,
+       cost_30 = ?`,
+    [
+      doctorId,
+      cost10,
+      cost20,
+      cost30,
+      cost10,
+      cost20,
+      cost30
+    ],
+    (err) => {
+      if (err) {
+        console.error("DB ERROR:", err);   // 🔥 IMPORTANT
+        return res.status(500).send("Failed to save cost");
+      }
+
+      res.send("Appointment cost saved successfully");
+    }
+  );
+});
+
+
+/* ================= GET APPOINTMENT COST ================= */
+router.get("/doctor/appointment-cost/:doctorId", (req, res) => {
+
+  db.query(
+    "SELECT * FROM doctor_appointment_costs WHERE doctor_id=?",
+    [req.params.doctorId],
+    (err, rows) => {
+
+      if (err) return res.status(500).send("Database error");
+
+      if (!rows.length) return res.json(null);
+
+      res.json(rows[0]);
+    }
+  );
+});
+
+/* ================= GET VERIFIED DOCTORS ================= */
+router.get("/customer/doctors", (req, res) => {
+  db.query(
+    "SELECT id, full_name, specialization, experience, hospital_name, doctor_image FROM doctors WHERE status='VERIFIED'",
+    (err, rows) => {
+      if (err) {
+        console.log(err);
+        return res.status(500).send("Server error");
+      }
+      console.log("Doctors returned:", rows); // 🔥 DEBUG LINE
+      res.json(rows);
     }
   );
 });
