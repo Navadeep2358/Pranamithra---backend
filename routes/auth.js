@@ -3,6 +3,8 @@ const bcrypt = require("bcrypt");
 const multer = require("multer");
 const path = require("path");
 const db = require("../db");
+const { v4: uuidv4 } = require("uuid");
+
 
 const router = express.Router();
 
@@ -388,6 +390,33 @@ router.get("/admin/customers", (req, res) => {
   });
 });
 
+/* ================= My Schedules ================= */
+router.get("/doctor/my-schedules", (req, res) => {
+
+  if (!req.session.user || req.session.user.role !== "doctor")
+    return res.status(401).send("Unauthorized");
+
+  db.query(
+    `SELECT * FROM doctor_schedules 
+     WHERE doctor_id=? 
+     ORDER BY schedule_date ASC`,
+    [req.session.user.id],
+    (err, rows) => {
+
+      if (err) return res.status(500).send("Error");
+
+      rows.forEach(r => {
+        r.available_slots =
+          typeof r.available_slots === "string"
+            ? JSON.parse(r.available_slots)
+            : r.available_slots;
+      });
+
+      res.json(rows);
+    }
+  );
+});
+
 /* ================= SLOT GENERATOR WITH 5 MIN GAP ================= */
 function generateSlots(loginTime, logoutTime, duration) {
   let slots = [];
@@ -422,22 +451,19 @@ router.post("/doctor/schedule", (req, res) => {
   if (!req.session.user || req.session.user.role !== "doctor")
     return res.status(401).send("Unauthorized");
 
-  const { scheduleDate, loginTime, logoutTime, duration } = req.body;
+  const { scheduleDate, loginTime, logoutTime, duration, availableSlots } = req.body;
   const doctorId = req.session.user.id;
 
   if (!scheduleDate || !loginTime || !logoutTime || !duration)
     return res.status(400).send("Missing fields");
 
+  if (!availableSlots || !Array.isArray(availableSlots) || availableSlots.length === 0)
+    return res.status(400).send("Select at least one slot");
+
   const slotDuration = Number(duration);
 
   if (![10, 20, 30].includes(slotDuration))
     return res.status(400).send("Invalid slot duration");
-
-  const availableSlots = generateSlots(
-    loginTime,
-    logoutTime,
-    slotDuration
-  );
 
   db.query(
     `INSERT INTO doctor_schedules
@@ -543,7 +569,10 @@ router.get("/doctor/appointment-cost/:doctorId", (req, res) => {
     [req.params.doctorId],
     (err, rows) => {
 
-      if (err) return res.status(500).send("Database error");
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Database error");
+      }
 
       if (!rows.length) return res.json(null);
 
@@ -552,64 +581,113 @@ router.get("/doctor/appointment-cost/:doctorId", (req, res) => {
   );
 });
 
+
 /* ================= GET VERIFIED DOCTORS ================= */
 router.get("/customer/doctors", (req, res) => {
+
   db.query(
-    "SELECT id, full_name, specialization, experience, hospital_name, doctor_image FROM doctors WHERE status='VERIFIED'",
+    `SELECT id, full_name, specialization, experience, 
+            hospital_name, hospital_address, doctor_image 
+     FROM doctors 
+     WHERE status='VERIFIED'`,
     (err, rows) => {
+
       if (err) {
-        console.log(err);
+        console.error(err);
         return res.status(500).send("Server error");
       }
-      console.log("Doctors returned:", rows); // 🔥 DEBUG LINE
+
       res.json(rows);
     }
   );
 });
+
+
+/* ================= GET SINGLE VERIFIED DOCTOR ================= */
+router.get("/customer/doctor/:id", (req, res) => {
+
+  db.query(
+    `SELECT id, full_name, specialization, experience,
+            hospital_name, hospital_address, doctor_image
+     FROM doctors
+     WHERE id=? AND status='VERIFIED'`,
+    [req.params.id],
+    (err, rows) => {
+
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Database error");
+      }
+
+      if (!rows.length)
+        return res.status(404).send("Doctor not found");
+
+      res.json(rows[0]);
+    }
+  );
+});
+
 
 /* ================= GET AVAILABLE SLOTS ================= */
 router.get("/doctor/available-slots", (req, res) => {
 
   const { doctorId, date } = req.query;
 
-  if (!doctorId || !date)
-    return res.status(400).send("Missing fields");
+  if (!doctorId || !date) {
+    return res.status(400).send("Missing doctorId or date");
+  }
 
-  // 1️⃣ Get doctor scheduled slots
   db.query(
-    `SELECT slot_time, duration 
-     FROM doctor_schedules 
+    `SELECT available_slots 
+     FROM doctor_schedules
      WHERE doctor_id=? AND schedule_date=?`,
     [doctorId, date],
-    (err, scheduledSlots) => {
+    (err, rows) => {
 
-      if (err) return res.status(500).send("Error");
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Database error");
+      }
 
-      // 2️⃣ Get already booked slots
+      if (!rows.length) {
+        return res.json([]); // no schedule
+      }
+
+      let allSlots = rows[0].available_slots;
+
+      if (typeof allSlots === "string") {
+        allSlots = JSON.parse(allSlots);
+      }
+
+      // Now remove already booked slots
       db.query(
         `SELECT slot_time 
-         FROM appointments 
+         FROM appointments
          WHERE doctor_id=? AND appointment_date=?`,
         [doctorId, date],
-        (err2, bookedSlots) => {
+        (err2, bookedRows) => {
 
-          if (err2) return res.status(500).send("Error");
+          if (err2) {
+            console.error(err2);
+            return res.status(500).send("Database error");
+          }
 
-          const bookedTimes = bookedSlots.map(b => b.slot_time);
+          const bookedSlots = bookedRows.map(r => r.slot_time);
 
-          // 3️⃣ Filter only available slots
-          const available = scheduledSlots.filter(
-            s => !bookedTimes.includes(s.slot_time)
+          const availableSlots = allSlots.filter(
+            slot => !bookedSlots.includes(slot)
           );
 
-          res.json(available);
+          res.json(availableSlots);
         }
       );
     }
   );
 });
 
+
 /* ================= BOOK APPOINTMENT ================= */
+
 router.post("/book-appointment", (req, res) => {
 
   if (!req.session.user || req.session.user.role !== "customer")
@@ -618,56 +696,104 @@ router.post("/book-appointment", (req, res) => {
   const { doctorId, slotTime, duration, amount, date } = req.body;
   const customerId = req.session.user.id;
 
-  if (!doctorId || !slotTime || !duration || !amount || !date)
+  if (!doctorId || !slotTime || !duration || amount == null || !date)
     return res.status(400).send("Missing fields");
 
-  // 🔥 Validate only tomorrow & day after tomorrow
-  const today = new Date();
-  const tomorrow = new Date();
-  tomorrow.setDate(today.getDate() + 1);
+  /* ===== SAFE DATE VALIDATION (IST SAFE) ===== */
 
-  const dayAfter = new Date();
-  dayAfter.setDate(today.getDate() + 2);
+  const getISTDate = (offsetDays) => {
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    istDate.setDate(istDate.getDate() + offsetDays);
 
-  const formatted = d => d.toISOString().split("T")[0];
+    const year = istDate.getFullYear();
+    const month = String(istDate.getMonth() + 1).padStart(2, "0");
+    const day = String(istDate.getDate()).padStart(2, "0");
 
-  if (date !== formatted(tomorrow) && date !== formatted(dayAfter))
+    return `${year}-${month}-${day}`;
+  };
+
+  const tomorrow = getISTDate(1);
+  const dayAfter = getISTDate(2);
+
+  if (date !== tomorrow && date !== dayAfter) {
     return res.status(400).send("Invalid date selection");
+  }
 
-  // 🔥 Check if slot exists in doctor schedule
+  /* ===== GENERATE CODES ===== */
+  const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const qrToken = uuidv4();   // ✅ now it works
+
+  /* ===== CHECK DOCTOR SCHEDULE ===== */
   db.query(
-    `SELECT * FROM doctor_schedules
-     WHERE doctor_id=? AND schedule_date=? AND slot_time=?`,
-    [doctorId, date, slotTime],
-    (err, scheduleRows) => {
+    `SELECT available_slots 
+     FROM doctor_schedules
+     WHERE doctor_id=? AND schedule_date=?`,
+    [doctorId, date],
+    (err, rows) => {
 
-      if (scheduleRows.length === 0)
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Database error");
+      }
+
+      if (!rows.length)
+        return res.status(400).send("Doctor not scheduled");
+
+      let scheduledSlots = rows[0].available_slots;
+
+      if (typeof scheduledSlots === "string") {
+        scheduledSlots = JSON.parse(scheduledSlots);
+      }
+
+      if (!scheduledSlots.includes(slotTime))
         return res.status(400).send("Invalid slot");
 
-      // 🔥 Check if already booked
+      /* ===== CHECK IF ALREADY BOOKED ===== */
       db.query(
-        `SELECT * FROM appointments 
+        `SELECT id FROM appointments 
          WHERE doctor_id=? AND appointment_date=? AND slot_time=?`,
         [doctorId, date, slotTime],
-        (err2, rows) => {
+        (err2, existing) => {
 
-          if (rows.length > 0)
+          if (err2) {
+            console.error(err2);
+            return res.status(500).send("Database error");
+          }
+
+          if (existing.length > 0)
             return res.status(400).send("Slot already booked");
 
-          // 🔥 Insert booking
+          /* ===== INSERT BOOKING ===== */
           db.query(
             `INSERT INTO appointments
-             (doctor_id, customer_id, appointment_date, slot_time, duration, amount)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [doctorId, customerId, date, slotTime, duration, amount],
-            (err3) => {
+             (doctor_id, customer_id, appointment_date, slot_time, duration, amount, verification_code, qr_token, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'BOOKED')`,
+            [
+              doctorId,
+              customerId,
+              date,
+              slotTime,
+              duration,
+              amount,
+              verificationCode,
+              qrToken
+            ],
+            (err3, result) => {
 
               if (err3) {
                 console.error(err3);
                 return res.status(500).send("Booking failed");
               }
 
-              res.send("Appointment booked successfully");
+              res.json({
+                message: "Appointment booked successfully",
+                bookingId: result.insertId,
+                verificationCode,
+                qrToken,
+                status: "BOOKED"
+              });
             }
           );
         }
@@ -677,6 +803,7 @@ router.post("/book-appointment", (req, res) => {
 });
 
 
+
 /* ================= GET CUSTOMER BOOKINGS ================= */
 router.get("/appointments/my", (req, res) => {
 
@@ -684,7 +811,9 @@ router.get("/appointments/my", (req, res) => {
     return res.status(401).send("Unauthorized");
 
   db.query(
-    `SELECT a.*, d.full_name, d.specialization
+    `SELECT a.*, 
+            d.full_name as doctor_name,
+            d.specialization
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      WHERE a.customer_id=? 
@@ -692,11 +821,81 @@ router.get("/appointments/my", (req, res) => {
     [req.session.user.id],
     (err, rows) => {
 
-      if (err) return res.status(500).send("Error");
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Error fetching appointments");
+      }
 
       res.json(rows);
     }
   );
 });
+
+
+/* ================= GET SINGLE APPOINTMENT (FOR LETTER) ================= */
+router.get("/appointment/:id", (req, res) => {
+
+  if (!req.session.user)
+    return res.status(401).send("Unauthorized");
+
+  db.query(
+    `SELECT a.*, 
+            c.full_name as customer_name,
+            c.email,
+            c.phone,
+            c.gender,
+            d.full_name as doctor_name,
+            d.specialization,
+            d.hospital_name,
+            d.hospital_address
+     FROM appointments a
+     JOIN customers c ON a.customer_id = c.id
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.id=?`,
+    [req.params.id],
+    (err, rows) => {
+
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Error fetching appointment");
+      }
+
+      if (!rows.length)
+        return res.status(404).send("Appointment not found");
+
+      res.json(rows[0]);
+    }
+  );
+});
+
+
+
+/* ================= VERIFY APPOINTMENT VIA QR ================= */
+router.get("/verify/:token", (req, res) => {
+
+  db.query(
+    `SELECT a.*, d.full_name 
+     FROM appointments a
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.qr_token=?`,
+    [req.params.token],
+    (err, rows) => {
+
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Verification failed");
+      }
+
+      if (!rows.length)
+        return res.status(404).json({ valid: false });
+
+      res.json({
+        valid: true,
+        appointment: rows[0]
+      });
+    }
+  );
+});
+
 
 module.exports = router;
