@@ -8,8 +8,10 @@ const authRoutes = require("./routes/auth");
 const app = express();
 
 /* ================= CORS ================= */
+/* For testing in cloud, allow all origins.
+   Later you can restrict to your frontend domain */
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: true,
   credentials: true
 }));
 
@@ -25,8 +27,8 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    sameSite: "lax",   // IMPORTANT for localhost
-    secure: false      // true only in https (production)
+    sameSite: "lax",
+    secure: false   // Change to true when using HTTPS
   }
 }));
 
@@ -36,9 +38,16 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 /* ================= ROUTES ================= */
 app.use("/", authRoutes);
 
+/* ================= HEALTH CHECK ROUTE ================= */
+/* Important for GCP Load Balancer */
+app.get("/", (req, res) => {
+  res.status(200).send("Backend is running 🚀");
+});
+
 /* ================= SERVER ================= */
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
+/* VERY IMPORTANT: listen on 0.0.0.0 for cloud */
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
