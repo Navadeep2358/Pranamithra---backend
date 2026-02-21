@@ -7,19 +7,17 @@ const authRoutes = require("./routes/auth");
 
 const app = express();
 
-/* ================= CORS ================= */
-/* For testing in cloud, allow all origins.
-   Later you can restrict to your frontend domain */
+/* ========================= CORS ========================= */
 app.use(cors({
-  origin: true,
+  origin: true,              // allow ALB domain dynamically
   credentials: true
 }));
 
-/* ================= BODY PARSERS ================= */
+/* ====================== BODY PARSERS ===================== */
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ================= SESSION ================= */
+/* ======================= SESSION ========================= */
 app.use(session({
   name: "pranamithra.sid",
   secret: "pranamithra_secret",
@@ -27,27 +25,28 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    sameSite: "lax",
-    secure: false   // Change to true when using HTTPS
+    secure: false,          // false because using HTTP (ALB without HTTPS)
+    sameSite: "lax"
   }
 }));
 
-/* ================= STATIC UPLOADS ================= */
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+/* ===================== STATIC UPLOADS ==================== */
+/* Accessible as: http://ALB-DNS/api/uploads/filename.jpg */
+app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* ================= ROUTES ================= */
-app.use("/", authRoutes);
-
-/* ================= HEALTH CHECK ROUTE ================= */
-/* Important for GCP Load Balancer */
-app.get("/", (req, res) => {
-  res.status(200).send("Backend is running 🚀");
+/* ===================== HEALTH CHECK ====================== */
+/* Used by ALB Target Group Health Check */
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
 });
 
-/* ================= SERVER ================= */
+/* ========================= ROUTES ======================== */
+/* All backend routes MUST start with /api */
+app.use("/api", authRoutes);
+
+/* ========================= SERVER ======================== */
 const PORT = process.env.PORT || 3000;
 
-/* VERY IMPORTANT: listen on 0.0.0.0 for cloud */
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
