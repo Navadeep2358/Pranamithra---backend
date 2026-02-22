@@ -7,17 +7,20 @@ const authRoutes = require("./routes/auth");
 
 const app = express();
 
-/* ========================= CORS ========================= */
+/* ================= CORS ================= */
 app.use(cors({
-  origin: true,              // allow ALB domain dynamically
+  origin: ["https://pranamithra-frontend.web.app"],
   credentials: true
 }));
 
-/* ====================== BODY PARSERS ===================== */
+/* ================= BODY PARSERS ================= */
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ======================= SESSION ========================= */
+/* ================= TRUST PROXY (IMPORTANT FOR RENDER) ================= */
+app.set("trust proxy", 1);
+
+/* ================= SESSION ================= */
 app.use(session({
   name: "pranamithra.sid",
   secret: "pranamithra_secret",
@@ -25,26 +28,23 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: false,          // false because using HTTP (ALB without HTTPS)
-    sameSite: "lax"
+    sameSite: "none",   // required for cross-site cookies
+    secure: true        // MUST be true for HTTPS (Render)
   }
 }));
 
-/* ===================== STATIC UPLOADS ==================== */
-/* Accessible as: http://ALB-DNS/api/uploads/filename.jpg */
-app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
+/* ================= STATIC UPLOADS ================= */
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* ===================== HEALTH CHECK ====================== */
-/* Used by ALB Target Group Health Check */
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
+/* ================= ROUTES ================= */
+app.use("/", authRoutes);
+
+/* ================= HEALTH CHECK ================= */
+app.get("/", (req, res) => {
+  res.status(200).send("Backend is running 🚀");
 });
 
-/* ========================= ROUTES ======================== */
-/* All backend routes MUST start with /api */
-app.use("/api", authRoutes);
-
-/* ========================= SERVER ======================== */
+/* ================= SERVER ================= */
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
