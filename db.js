@@ -1,19 +1,26 @@
 const mysql = require("mysql2");
 
-const db = mysql.createConnection({
-  host: "pranamithra-db1.cl0iis0c412f.ap-south-1.rds.amazonaws.com",
-  user: "admin",
-  password: "2300030831",
-  database: "pranamithra"
-});
+let db;
 
-db.connect((err) => {
+if (process.env.DATABASE_URL) {
+  // Production (Railway)
+  db = mysql.createConnection(process.env.DATABASE_URL);
+} else {
+  // Local (for development)
+  db = mysql.createConnection({
+    host: "localhost",
+    user: "root",
+    password: "1234",
+    database: "pranamithra"
+  });
+}
+
+db.connect(err => {
   if (err) {
-    console.error("❌ Database connection failed:", err);
+    console.log("DB Connection Error:", err);
   } else {
-    console.log("✅ Connected to RDS MySQL");
+    console.log("MySQL Connected ✅");
   }
 });
 
 module.exports = db;
-
