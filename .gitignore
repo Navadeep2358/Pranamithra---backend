@@ -3,3 +3,4 @@ node_modules/
 # Ignore uploads folder files
 uploads/*
 !uploads/.gitkeep
+*.pem
