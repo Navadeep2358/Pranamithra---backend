@@ -967,4 +967,134 @@ router.get("/doctor/dashboard", (req, res) => {
   );
 });
 
+/* ================= GET AVAILABLE DATES FOR DOCTOR ================= */
+router.get("/doctor/available-dates", (req, res) => {
+
+  if (!req.session.user || req.session.user.role !== "doctor")
+    return res.status(401).json({ error: "Unauthorized" });
+
+  const doctorId = req.session.user.id;
+
+  db.query(
+    `SELECT DISTINCT DATE_FORMAT(schedule_date, '%Y-%m-%d') AS schedule_date
+     FROM doctor_schedules
+     WHERE doctor_id = ?
+     AND status = 'active'
+     AND DATE(schedule_date) IN (
+         DATE_ADD(CURDATE(), INTERVAL 1 DAY),
+         DATE_ADD(CURDATE(), INTERVAL 2 DAY)
+     )
+     ORDER BY schedule_date ASC`,
+    [doctorId],
+    (err, rows) => {
+
+      if (err) {
+        console.error("Date Fetch Error:", err);
+        return res.status(500).json({ error: "Failed to fetch dates" });
+      }
+
+      const dates = rows.map(r => r.schedule_date);
+
+      // 🔥 IMPORTANT CONDITION
+      if (dates.length === 0) {
+        return res.json({
+          message: "No slots scheduled for the next 2 days.",
+          dates: []
+        });
+      }
+
+      res.json({ dates });
+    }
+  );
+});
+
+/* =====================================================
+   GET DOCTOR APPOINTMENTS
+===================================================== */
+
+router.get("/doctor/appointments", (req, res) => {
+
+  if (!req.session.user || req.session.user.role !== "doctor")
+    return res.status(401).json({ error: "Unauthorized" });
+
+  const doctorId = req.session.user.id;
+
+  db.query(
+    `SELECT 
+        a.id,
+        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+        a.slot_time,
+        a.status,
+        c.full_name AS customer_name,
+        c.phone
+     FROM appointments a
+     JOIN customers c ON a.customer_id = c.id
+     WHERE a.doctor_id = ?
+     ORDER BY a.appointment_date DESC, a.slot_time ASC`,
+    [doctorId],
+    (err, rows) => {
+
+      if (err) {
+        console.error("Appointment Fetch Error:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      res.json(rows);
+    }
+  );
+});
+
+router.get("/admin/queries", (req, res) => {
+
+  if (!req.session.user || req.session.user.role !== "admin") {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  db.query(
+    "SELECT * FROM queries ORDER BY created_at DESC",
+    (err, rows) => {
+
+      if (err) {
+        console.error("Fetch Queries Error:", err);
+        return res.status(500).json({ message: "Server error" });
+      }
+
+      res.json(rows);
+    }
+  );
+
+});
+
+router.post("/send-query", async (req, res) => {
+
+  try {
+
+    if (!req.session.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { message } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ message: "Message required" });
+    }
+
+    await db.query(
+      "INSERT INTO queries (user_id, role, message) VALUES (?, ?, ?)",
+      [
+        req.session.user.id,
+        req.session.user.role,
+        message
+      ]
+    );
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+
+});
+
 module.exports = router;

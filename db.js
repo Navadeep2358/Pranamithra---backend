@@ -1,4 +1,5 @@
 const mysql = require("mysql2");
+require("dotenv").config();
 
 let db;
 
@@ -6,18 +7,18 @@ if (process.env.DATABASE_URL) {
   // Production (Railway)
   db = mysql.createConnection(process.env.DATABASE_URL);
 } else {
-  // Local (for development)
+  // Local Development
   db = mysql.createConnection({
     host: "localhost",
     user: "root",
-    password: "1234",
+    password: "2358",
     database: "pranamithra"
   });
 }
 
-db.connect(err => {
+db.connect((err) => {
   if (err) {
-    console.log("DB Connection Error:", err);
+    console.error("DB Connection Error:", err);
   } else {
     console.log("MySQL Connected ✅");
   }

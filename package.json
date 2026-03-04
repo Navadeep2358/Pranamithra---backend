@@ -11,6 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-lex-runtime-v2": "^3.997.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "ejs": "^4.0.1",
