@@ -12,14 +12,10 @@ const app = express();
 
 /* ================= CORS ================= */
 /* allow Netlify + localhost */
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "https://69b56b6465e26f0008e29d8f--pranamithra-frontend.netlify.app"
-  ],
-  credentials: true
-}));
-
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://pranamithra.netlify.app"
+];
 /* ================= BODY PARSERS ================= */
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
