@@ -1097,4 +1097,107 @@ router.post("/send-query", async (req, res) => {
 
 });
 
+router.get("/customer/specializations", (req, res) => {
+
+  db.query(
+    `SELECT DISTINCT specialization 
+     FROM doctors 
+     WHERE status='VERIFIED'`,
+    (err, rows) => {
+
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Server error");
+      }
+
+      const specs = rows.map(r => r.specialization);
+
+      res.json(specs);
+    }
+  );
+
+});
+
+router.get("/customer/doctors-by-specialization/:spec", (req, res) => {
+
+  const spec = req.params.spec;
+
+  db.query(
+    `SELECT id, full_name, specialization, hospital_name 
+     FROM doctors
+     WHERE specialization=? 
+     AND status='VERIFIED'`,
+    [spec],
+    (err, rows) => {
+
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Server error");
+      }
+
+      res.json(rows);
+    }
+  );
+
+});
+
+router.get("/customer/doctor-dates/:doctorId", (req, res) => {
+
+  const doctorId = req.params.doctorId;
+
+  db.query(
+    `SELECT DISTINCT DATE_FORMAT(schedule_date,'%Y-%m-%d') as schedule_date
+     FROM doctor_schedules
+     WHERE doctor_id=? 
+     AND DATE(schedule_date)>=CURDATE()
+     ORDER BY schedule_date ASC`,
+    [doctorId],
+    (err, rows) => {
+
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Error fetching dates");
+      }
+
+      res.json({
+        dates: rows.map(r => r.schedule_date)
+      });
+    }
+  );
+
+});
+
+router.get("/customer/doctor-slots/:doctorId/:date", (req, res) => {
+
+  const { doctorId, date } = req.params;
+
+  db.query(
+    `SELECT available_slots
+     FROM doctor_schedules
+     WHERE doctor_id=? 
+     AND DATE(schedule_date)=?`,
+    [doctorId, date],
+    (err, rows) => {
+
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Server error");
+      }
+
+      if (!rows.length) {
+        return res.json({ slots: [] });
+      }
+
+      let slots = rows[0].available_slots;
+
+      if (typeof slots === "string") {
+        slots = JSON.parse(slots);
+      }
+
+      res.json({ slots });
+    }
+  );
+
+});
+
 module.exports = router;

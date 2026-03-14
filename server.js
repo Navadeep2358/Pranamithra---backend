@@ -13,7 +13,7 @@ const app = express();
 /* ================= CORS ================= */
 app.use(cors({
   origin: [
-    "http://localhost:5173",  // Vite frontend
+    "http://localhost:5173",
     "https://pranamithra-frontend.web.app"
   ],
   credentials: true
@@ -29,13 +29,13 @@ app.set("trust proxy", 1);
 /* ================= SESSION ================= */
 app.use(session({
   name: "pranamithra.sid",
-  secret: "pranamithra_secret",
+  secret: process.env.SESSION_SECRET || "pranamithra_secret",
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    sameSite: "lax",   // local development
-    secure: false      // set true only in production (HTTPS)
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production"
   }
 }));
 
@@ -43,8 +43,8 @@ app.use(session({
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ================= ROUTES ================= */
-app.use("/", authRoutes);      // login, admin, etc.
-app.use("/api", chatRoutes);   // chatbot route
+app.use("/", authRoutes);
+app.use("/api", chatRoutes);
 
 /* ================= HEALTH CHECK ================= */
 app.get("/", (req, res) => {
@@ -61,7 +61,7 @@ process.on("unhandledRejection", (err) => {
 });
 
 /* ================= SERVER ================= */
-const PORT = 3000;   // ✅ KEEP 3000 (matches frontend)
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
