@@ -11,11 +11,22 @@ const chatRoutes = require("./routes/chat");
 const app = express();
 
 /* ================= CORS ================= */
-/* allow Netlify + localhost */
 const allowedOrigins = [
   "http://localhost:5173",
   "https://pranamithra.netlify.app"
 ];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
+
 /* ================= BODY PARSERS ================= */
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -31,8 +42,8 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    sameSite: "none",   // important for cross-domain cookies
-    secure: true        // required when sameSite is none (HTTPS)
+    sameSite: "none",   // required for cross-site cookies
+    secure: true        // HTTPS required (Render uses HTTPS)
   }
 }));
 
