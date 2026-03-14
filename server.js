@@ -11,10 +11,11 @@ const chatRoutes = require("./routes/chat");
 const app = express();
 
 /* ================= CORS ================= */
+/* allow Netlify + localhost */
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://pranamithra-frontend.web.app"
+    "https://69b56b6465e26f0008e29d8f--pranamithra-frontend.netlify.app"
   ],
   credentials: true
 }));
@@ -23,7 +24,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ================= TRUST PROXY ================= */
+/* ================= TRUST PROXY (needed for Render) ================= */
 app.set("trust proxy", 1);
 
 /* ================= SESSION ================= */
@@ -34,8 +35,8 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production"
+    sameSite: "none",   // important for cross-domain cookies
+    secure: true        // required when sameSite is none (HTTPS)
   }
 }));
 
@@ -60,7 +61,6 @@ process.on("unhandledRejection", (err) => {
   console.error("Unhandled Rejection:", err);
 });
 
-/* ================= SERVER ================= */
 /* ================= SERVER ================= */
 const PORT = process.env.PORT || 5000;
 
